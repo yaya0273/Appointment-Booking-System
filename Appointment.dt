@@ -1,0 +1,259 @@
+$APP = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=Appointment.xls;Extended Properties=Excel 8.0" 
+$PD = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=Patient.xls;Extended Properties=Excel 8.0"
+
+MAIN:
+	answer 1
+	
+START:
+	log "Phone Number: " $cli
+	$ch=accept("MENU.wav",1)
+	if compare($ch,3)==0
+	    $status=transfer("10")
+	    if $status == "CONNECTED"
+	    	Hangup
+	    else
+	    	play "BUSY.wav"
+	    	Hangup
+	    endif
+	elif compare($ch,2)==0:
+	    goto STATUS
+	elif compare($ch,1)==0
+	    goto SCHEDULE
+	elif compare($ch,0)==0
+	    goto LIST
+	else
+		play "INV_INP.wav"
+		goto START
+	endif
+	
+LIST:
+	log "LIST"
+	play "Schedule.wav"
+	$curdat=concat(left($date,2),right(left($date,5),2),right(left($date,10),4))
+	$sql=format("Select * from [%s$]",$curdat)
+	$alias=db.open($APP,$sql)
+	while not $alias.eof
+	    if compare($alias.Name,'')==0
+	        $alias=db.skip()
+	        continue
+	    endif
+	    speak $alias.SLOT 
+	    speak $alias.Name
+	    wait 0
+	    $alias=db.skip()
+	endwhile
+	goto GOODBYE
+	
+	
+STATUS:
+	log "STATUS"
+	$ch=accept("Choose_NUM.wav",1)
+	if compare($ch,1)==0
+		$num=right($cli,10)
+	elif compare($ch,2)==0
+		$num=accept("ENTER_REGNUM.wav",10,3,15)
+	else
+		play "INV_INP.wav"
+		goto STATUS
+	endif
+	log "Existing Patient Phone Number: " $num
+	$sql=format("Select * from [Patient$] where NUMBER=%s",$num)
+	$alias=db.runsql($PD,$sql)
+	if compare($alias.eof,1)==0
+		    play "DOE.wav"
+		    goto STATUS
+	endif
+	$dat=$alias.NEXT_APP
+	if compare($dat,'')==0
+	    play "NO_APP.wav"
+	    goto GOODBYE
+	else
+		$sql=format("Select * from [%s$] where PID='%s'",$dat,$alias.PID)
+		$alias=db.runsql($APP,$sql)
+		speak "Your next appointment is on " $dat "at " $alias.SLOT
+		wait 0
+		$ch=accept("CANCEL.wav",1)
+		if compare($ch,1)==0
+		    goto CANCEL
+		else
+			goto GOODBYE
+		endif
+		
+	endif
+
+CANCEL:
+	log "CANCEL"
+	$sql=format("Update [Patient$] set NEXT_APP=NULL where PID=%s",$alias.PID)
+	$info = db.RunSQL($PD, $sql)
+	if compare($info,0)==0
+	    play "error.wav"
+	    Hangup
+	endif
+	$sql=format("Update [%s$] set PID=NULL, Name=NULL, PH_Number=NULL where PID='%s'",$dat,$alias.PID)
+	$alias = db.RunSQL($APP, $sql)
+	if compare($alias,0)==1
+	    log "Appointment Cancelled: " $alias
+		play "CAN_SUC.wav"
+		goto GOODBYE
+		
+
+;		$sms.Message = "Your appointment has been cancelled successfully."
+;		$Sms.Phoneno = $num
+;		display "Sending SMS to " $Sms.Phoneno
+;		if Sms.Send() <= 0
+;			display "SMS Sent"
+;			log "SMS Sent"
+;		else
+;			display "SMS Not Sent"
+;			log "SMS Not Sent"	
+;		endif
+		
+	else
+		play "error.wav"
+		Hangup
+	endif
+	
+
+SCHEDULE:
+	$ch=accept("Existing_New.wav",1)
+	if compare($ch,1)==0
+	    
+EXISTING:
+		$ch=accept("Choose_NUM.wav",1)
+		if compare($ch,1)==0
+			$num=right($cli,10)
+		elif compare($ch,2)==0
+			$num=accept("ENTER_REGNUM.wav",10,3,15)
+		else
+			goto EXISTING
+		endif
+		log "Existing Patient Phone Number: " $num
+		$sql=format("Select * from [Patient$] where Number=%s",$num)
+		$info=db.runsql($PD,$sql)
+		if compare($info.eof,1)==0
+		    play "DOE.wav"
+		    goto SCHEDULE
+		endif
+		speak "Your Name is " $info.NAME
+		wait 0
+		$ch=accept("CONFIRM.wav",1)
+		if compare($ch,1)==0
+		    goto BOOK
+		elif compare($ch,2)==0
+		    goto EXISTING
+		else
+			goto NEW
+		endif
+	elif compare($ch,2)==0
+	    goto NEW
+	else
+		goto SCHEDULE
+	endif
+
+NEW:
+	log "Registering new Patient"
+	$ch=accept("Choose_NUM.wav",1)
+	if compare($ch,1)==0
+	    $num=right($cli,10)
+	elif compare($ch,2)==0
+		$num=accept("Enter_Num.wav",10,3,15)
+	else
+		goto NEW
+	endif
+	log "Mobile Number: " $num
+	$sql=format("Select PID from [Patient$] order by PID desc")
+	$alias=db.runsql($PD,$sql)
+	$PID=$alias.PID + 1
+	log "NEW PID: " $PID
+	$sql=format("Insert into [Patient$] values(%s,NULL,%s,NULL)",$PID,$num)
+	$alias = db.RunSQL($PD, $sql)
+	log "Create new Patient: " $alias
+;	$sms.Message = concat("Thank you for registering at ____. Your Patient ID is : ",$PID)
+;	$Sms.Phoneno = $num
+;	display "Sending SMS to " $Sms.Phoneno
+;	if Sms.Send() <= 0
+;		display "SMS Sent"
+;		log "SMS SENT"
+;	else
+;		display "SMS Not Sent"
+;		log "SMS NOT SENT"	
+;	endif
+
+
+BOOK:
+	log "Booking Appintment"
+	$dat=accept("DOA.wav",8,3,30)
+	log "DATE: " $dat
+	
+	$sql=format("Select * from [%s$]",$dat)
+	$alias=db.runsql($APP,$sql)
+	log "Selected Date: " $alias
+	if compare($alias,0)==0
+	    play "Closed.wav"
+	    goto BOOK
+	endif
+		
+	$sql=format("Select * from [%s$] where PID is NULL",$dat)
+	$slot=db.open($APP,$sql)
+	$sl=-1
+	while not $slot.eof
+		speak "Press" $slot.SL "for" $slot.SLOT
+		wait 0
+		$sl=input(2,1)
+		if compare($sl,-1) <> -1
+			break
+		endif
+		$slot=db.skip()
+	endwhile
+	$slot=db.close()
+	log "Slot: " $sl
+	display $sl
+	$sql=format("Select * from [Patient$] where Number=%s",$num)
+	$info=db.runsql($PD,$sql)
+	$sql=format("Update [Patient$] set NEXT_APP='%s' where PID=%s",$dat,$info.PID)
+	$alias = db.RunSQL($PD, $sql)
+	log "NEXT APPOINTMENT SET :" $alias
+	if compare($alias,0)==0
+	    play "error.wav"
+	    Hangup
+	endif
+	$sql=format("Update [%s$] set PID=%s, Name='%s', PH_Number=%s where SL=%s",$dat,$info.PID,$info.NAME,$info.NUMBER,$sl)
+	$alias = db.RunSQL($APP, $sql)
+	log "UPDATE TABLE APPOINTMENT :" $alias
+	if compare($alias,1)==0
+	    log "Appointment Booked: " $alias
+		play "SCH_SUCC.wav"
+		
+;		$sql=format("Select SLOT from [%s$] where SL=%s",$dat,$sl)
+;		$alias = db.RunSQL($APP, $sql)
+;		$sms.Message = concat("Your appointment for ",$dat," at ",$alias.SLOT," has been scheduled successfully.")
+;		$Sms.Phoneno = $num
+;		display "Sending SMS to " $Sms.Phoneno
+;		if Sms.Send() <= 0
+;			display "SMS Sent"
+;			log "SMS Sent"
+;		else
+;			display "SMS Not Sent"
+;			log "SMS Not Sent"	
+;		endif
+		
+	else
+		play "error.wav"
+		Hangup
+	endif
+	
+GOODBYE:
+	display "Terminating Call"
+	play "goodbye.wav"
+	Hangup
+
+ONHANGUP:
+   Clear
+   Hangup
+   goto MAIN
+
+ONSYSTEMERROR:
+    log $error
+    display $error
+    hangup
+    goto MAIN
